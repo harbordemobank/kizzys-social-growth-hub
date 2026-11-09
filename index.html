@@ -55,7 +55,7 @@ footer{background:var(--navy);color:#dce5ff;text-align:center;padding:27px}
 <div id="adminPanel"><button class="btn" id="refreshOrders" type="button">Refresh orders</button> <button class="btn" id="signOut" type="button">Sign out</button><p id="adminMessage" class="muted"></p><div style="overflow-x:auto"><table><thead><tr><th>Created</th><th>Customer</th><th>Campaign</th><th>Target</th><th>Status</th><th>Update</th></tr></thead><tbody id="ordersBody"></tbody></table></div></div>
 <div id="adminStatus" class="status" style="display:block;margin-top:12px">Admin access requires your own Supabase project and an administrator account. See SETUP.md.</div></div></section>
 </main><footer><b>Kizzys Social Growth Hub</b><br>Thoughtful promotion. Real audiences. Better content.<br><small>© <span id="year"></span> Kizzys Social Growth Hub</small></footer>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 document.getElementById('year').textContent=new Date().getFullYear();
 // Add your NEW Kizzys Supabase project URL and anon/publishable key here after setup.
