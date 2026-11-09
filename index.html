@@ -52,6 +52,24 @@ footer{background:var(--navy);color:#dce5ff;text-align:center;padding:27px}
 <button class="btn" type="submit">Submit campaign request</button></form><div id="formStatus" class="status" aria-live="polite"></div></div></section>
 <section class="wrap" id="admin"><h2>Admin dashboard</h2><p class="muted">Private team access. Sign in with the administrator account configured in Supabase.</p>
 <div class="card"><div id="adminLogin"><form id="loginForm"><div><label for="adminEmail">Admin email</label><input id="adminEmail" type="email" required></div><div><label for="adminPassword">Password</label><input id="adminPassword" type="password" required></div><button class="btn">Sign in</button></form></div>
+  
+<div id="passwordRecovery" style="display:none;margin-bottom:20px">
+  <h3>Set a New Administrator Password</h3>
+  <p class="muted">Enter your new password below.</p>
+  <form id="recoveryForm">
+    <div>
+      <label for="newPassword">New password</label>
+      <input id="newPassword" type="password" minlength="8" required placeholder="At least 8 characters">
+    </div>
+    <div>
+      <label for="confirmPassword">Confirm new password</label>
+      <input id="confirmPassword" type="password" minlength="8" required placeholder="Enter password again">
+    </div>
+    <button class="btn" type="submit">Save New Password</button>
+  </form>
+  <p id="recoveryStatus" class="muted" aria-live="polite"></p>
+</div>
+
 <div id="adminPanel"><button class="btn" id="refreshOrders" type="button">Refresh orders</button> <button class="btn" id="signOut" type="button">Sign out</button><p id="adminMessage" class="muted"></p><div style="overflow-x:auto"><table><thead><tr><th>Created</th><th>Customer</th><th>Campaign</th><th>Target</th><th>Status</th><th>Update</th></tr></thead><tbody id="ordersBody"></tbody></table></div></div>
 <div id="adminStatus" class="status" style="display:block;margin-top:12px">Admin access requires your own Supabase project and an administrator account. See SETUP.md.</div></div></section>
 </main><footer><b>Kizzys Social Growth Hub</b><br>Thoughtful promotion. Real audiences. Better content.<br><small>© <span id="year"></span> Kizzys Social Growth Hub</small></footer>
@@ -85,6 +103,103 @@ document.getElementById('orderForm').addEventListener('submit',async e=>{
 });
 function val(id){return document.getElementById(id).value.trim()}
 const adminStatus=document.getElementById('adminStatus');
+  
+// Handle password recovery
+if (db) {
+  db.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY' && session) {
+      document.getElementById('adminLogin').style.display = 'none';
+      document.getElementById('adminPanel').style.display = 'none';
+      document.getElementById('passwordRecovery').style.display = 'block';
+
+      document.getElementById('recoveryStatus').textContent =
+        'Recovery verified. Enter your new password.';
+    }
+  });
+}
+
+// Save the administrator's new password
+document.getElementById('recoveryForm').addEventListener('submit', async e => {
+  e.preventDefault();
+
+  const newPassword = val('newPassword');
+  const confirmPassword = val('confirmPassword');
+  const message = document.getElementById('recoveryStatus');
+
+  if (!db) {
+    message.textContent = 'Supabase is not connected.';
+    return;
+  }
+
+  if (newPassword.length < 8) {
+    message.textContent = 'Password must contain at least 8 characters.';
+    return;
+  }
+
+  if (newPassword !== confirmPassword) {
+    message.textContent = 'The passwords do not match.';
+    return;
+  }
+
+  message.textContent = 'Saving your new password...';
+
+  const { error } = await db.auth.updateUser({
+    password: newPassword
+  });
+
+  if (error) {
+    message.textContent = 'Password update failed: ' + error.message;
+    return;
+  }
+
+  await db.auth.signOut();
+
+  document.getElementById('recoveryForm').reset();
+  document.getElementById('passwordRecovery').style.display = 'none';
+  document.getElementById('adminLogin').style.display = 'block';
+
+  adminStatus.textContent =
+    'Password changed successfully. Sign in with your new password.';
+});
+// Save the administrator's new password.
+document.getElementById('recoveryForm').addEventListener('submit', async e => {
+  e.preventDefault();
+
+  const newPassword = val('newPassword');
+  const confirmPassword = val('confirmPassword');
+  const message = document.getElementById('recoveryStatus');
+
+  if (newPassword.length < 8) {
+    message.textContent = 'Password must contain at least 8 characters.';
+    return;
+  }
+
+  if (newPassword !== confirmPassword) {
+    message.textContent = 'The passwords do not match.';
+    return;
+  }
+
+  message.textContent = 'Saving your new password...';
+
+  const { error } = await db.auth.updateUser({
+    password: newPassword
+  });
+
+  if (error) {
+    message.textContent = 'Password update failed: ' + error.message;
+    return;
+  }
+
+  await db.auth.signOut();
+
+  document.getElementById('recoveryForm').reset();
+  document.getElementById('passwordRecovery').style.display = 'none';
+  document.getElementById('adminLogin').style.display = 'block';
+
+  adminStatus.textContent =
+    'Password changed successfully. Sign in with your new password.';
+});
+
 document.getElementById('loginForm').addEventListener('submit',async e=>{
  e.preventDefault();if(!db){adminStatus.textContent='Connect Supabase first. Follow SETUP.md.';return;}
  const {error}=await db.auth.signInWithPassword({email:val('adminEmail'),password:val('adminPassword')});
