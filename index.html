@@ -73,149 +73,263 @@ footer{background:var(--navy);color:#dce5ff;text-align:center;padding:27px}
 <div id="adminPanel"><button class="btn" id="refreshOrders" type="button">Refresh orders</button> <button class="btn" id="signOut" type="button">Sign out</button><p id="adminMessage" class="muted"></p><div style="overflow-x:auto"><table><thead><tr><th>Created</th><th>Customer</th><th>Campaign</th><th>Target</th><th>Status</th><th>Update</th></tr></thead><tbody id="ordersBody"></tbody></table></div></div>
 <div id="adminStatus" class="status" style="display:block;margin-top:12px">Admin access requires your own Supabase project and an administrator account. See SETUP.md.</div></div></section>
 </main><footer><b>Kizzys Social Growth Hub</b><br>Thoughtful promotion. Real audiences. Better content.<br><small>© <span id="year"></span> Kizzys Social Growth Hub</small></footer>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-document.getElementById('year').textContent=new Date().getFullYear();
-// Add your NEW Kizzys Supabase project URL and anon/publishable key here after setup.
+document.getElementById('year').textContent = new Date().getFullYear();
 
-const SUPABASE_URL='https://bcjsvfvhgixktdbysdjd.supabase.co';
-const SUPABASE_ANON_KEY='sb_publishable_qxttVDfpeCBW-hrWr0ArDg_l-bTPBqK';
+const SUPABASE_URL = 'https://bcjsvfvhgixktdbysdjd.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_qxttVDfpeCBW-hrWr0ArDg_l-bTPaK';
 
-let db=null;
+const db = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY
+);
 
-if(window.supabase && window.supabase.createClient){
-  db=window.supabase.createClient(
-    SUPABASE_URL,
-    SUPABASE_ANON_KEY
-  );
-} else {
-  document.getElementById('adminStatus').textContent =
-    'Supabase library failed to load. Please refresh the page.';
+function val(id) {
+  return document.getElementById(id).value.trim();
 }
-const statusBox=document.getElementById('formStatus');
-document.getElementById('orderForm').addEventListener('submit',async e=>{
- e.preventDefault();
- const order={customer_name:val('customer'),contact:val('contact'),platform:val('platform'),service:val('service'),profile_link:val('link'),target_reach:Number(val('target')),target_country:val('country'),details:val('details')};
- if(!db){statusBox.style.display='block';statusBox.textContent='The form is ready, but online order submission is not connected yet. Complete the Supabase setup in SETUP.md, then add your project URL and public key to this page.';return;}
- const {error}=await db.from('campaign_orders').insert(order);
- statusBox.style.display='block';statusBox.textContent=error?'Your request could not be submitted: '+error.message:'Thank you. Your campaign request has been received. The team will contact you with a quote.';
- if(!error)e.target.reset();
-});
-function val(id){return document.getElementById(id).value.trim()}
-const adminStatus=document.getElementById('adminStatus');
-  
-// Handle password recovery
-if (db) {
-  db.auth.onAuthStateChange((event, session) => {
-    if (event === 'PASSWORD_RECOVERY' && session) {
-      document.getElementById('adminLogin').style.display = 'none';
-      document.getElementById('adminPanel').style.display = 'none';
-      document.getElementById('passwordRecovery').style.display = 'block';
 
-      document.getElementById('recoveryStatus').textContent =
-        'Recovery verified. Enter your new password.';
+const adminStatus = document.getElementById('adminStatus');
+const statusBox = document.getElementById('formStatus');
+
+async function checkAdmin() {
+  const { data, error } = await db.rpc('is_hub_admin');
+
+  if (error || data !== true) {
+    adminStatus.textContent =
+      'This account does not have administrator access.';
+    document.getElementById('adminLogin').style.display = 'block';
+    document.getElementById('adminPanel').style.display = 'none';
+    return false;
+  }
+
+  document.getElementById('adminLogin').style.display = 'none';
+  document.getElementById('adminPanel').style.display = 'block';
+
+  await loadOrders();
+  return true;
+}
+
+// Customer campaign submission
+document.getElementById('orderForm').addEventListener('submit', async e => {
+  e.preventDefault();
+
+  const button = e.target.querySelector('button[type="submit"]');
+  button.disabled = true;
+  button.textContent = 'Submitting...';
+
+  const order = {
+    customer_name: val('customer'),
+    contact: val('contact'),
+    platform: val('platform'),
+    service: val('service'),
+    profile_link: val('link'),
+    target_reach: Number(val('target')),
+    target_country: val('country'),
+    details: val('details'),
+    status: 'new'
+  };
+
+  try {
+    const { error } = await db
+      .from('campaign_orders')
+      .insert(order);
+
+    statusBox.style.display = 'block';
+
+    if (error) {
+      statusBox.textContent =
+        'Submission failed: ' + error.message;
+    } else {
+      statusBox.textContent =
+        'Thank you! Your campaign request has been received. We will contact you with a quote.';
+      e.target.reset();
     }
-  });
-}
+  } catch (error) {
+    statusBox.style.display = 'block';
+    statusBox.textContent = 'Something went wrong. Please try again.';
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Submit campaign request';
+  }
+});
 
-// Save the administrator's new password
-document.getElementById('recoveryForm').addEventListener('submit', async e => {
+// Administrator login
+document.getElementById('loginForm').addEventListener('submit', async e => {
   e.preventDefault();
 
-  const newPassword = val('newPassword');
-  const confirmPassword = val('confirmPassword');
-  const message = document.getElementById('recoveryStatus');
+  adminStatus.textContent = 'Signing in...';
 
-  if (!db) {
-    message.textContent = 'Supabase is not connected.';
-    return;
-  }
-
-  if (newPassword.length < 8) {
-    message.textContent = 'Password must contain at least 8 characters.';
-    return;
-  }
-
-  if (newPassword !== confirmPassword) {
-    message.textContent = 'The passwords do not match.';
-    return;
-  }
-
-  message.textContent = 'Saving your new password...';
-
-  const { error } = await db.auth.updateUser({
-    password: newPassword
+  const { error } = await db.auth.signInWithPassword({
+    email: val('adminEmail'),
+    password: val('adminPassword')
   });
 
   if (error) {
-    message.textContent = 'Password update failed: ' + error.message;
+    adminStatus.textContent = error.message;
     return;
   }
 
-  await db.auth.signOut();
+  const allowed = await checkAdmin();
 
-  document.getElementById('recoveryForm').reset();
-  document.getElementById('passwordRecovery').style.display = 'none';
-  document.getElementById('adminLogin').style.display = 'block';
-
-  adminStatus.textContent =
-    'Password changed successfully. Sign in with your new password.';
+  if (allowed) {
+    adminStatus.textContent = 'Administrator signed in successfully.';
+  }
 });
-// Save the administrator's new password.
-document.getElementById('recoveryForm').addEventListener('submit', async e => {
-  e.preventDefault();
 
-  const newPassword = val('newPassword');
-  const confirmPassword = val('confirmPassword');
-  const message = document.getElementById('recoveryStatus');
+// Load customer orders
+async function loadOrders() {
+  adminStatus.textContent = 'Loading orders...';
 
-  if (newPassword.length < 8) {
-    message.textContent = 'Password must contain at least 8 characters.';
-    return;
-  }
-
-  if (newPassword !== confirmPassword) {
-    message.textContent = 'The passwords do not match.';
-    return;
-  }
-
-  message.textContent = 'Saving your new password...';
-
-  const { error } = await db.auth.updateUser({
-    password: newPassword
-  });
+  const { data, error } = await db
+    .from('campaign_orders')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(200);
 
   if (error) {
-    message.textContent = 'Password update failed: ' + error.message;
+    adminStatus.textContent = 'Could not load orders: ' + error.message;
     return;
   }
 
-  await db.auth.signOut();
+  const body = document.getElementById('ordersBody');
+  body.replaceChildren();
 
-  document.getElementById('recoveryForm').reset();
-  document.getElementById('passwordRecovery').style.display = 'none';
-  document.getElementById('adminLogin').style.display = 'block';
+  for (const order of data) {
+    const tr = document.createElement('tr');
 
-  adminStatus.textContent =
-    'Password changed successfully. Sign in with your new password.';
-});
+    const values = [
+      new Date(order.created_at).toLocaleString(),
+      order.customer_name + ' / ' + order.contact,
+      order.platform + ' — ' + order.service + ' — ' + order.profile_link,
+      Number(order.target_reach || 0).toLocaleString() + ' reach',
+      order.status
+    ];
 
-document.getElementById('loginForm').addEventListener('submit',async e=>{
- e.preventDefault();if(!db){adminStatus.textContent='Connect Supabase first. Follow SETUP.md.';return;}
- const {error}=await db.auth.signInWithPassword({email:val('adminEmail'),password:val('adminPassword')});
- if(error){adminStatus.textContent=error.message;return;}
- document.getElementById('adminLogin').style.display='none';document.getElementById('adminPanel').style.display='block';adminStatus.textContent='Signed in. Loading orders...';loadOrders();
-});
-async function loadOrders(){
- const {data,error}=await db.from('campaign_orders').select('*').order('created_at',{ascending:false}).limit(200);
- if(error){adminStatus.textContent=error.message;return;}
- const body=document.getElementById('ordersBody');body.replaceChildren();
- for(const o of data){const tr=document.createElement('tr');const cells=[new Date(o.created_at).toLocaleString(),o.customer_name+' / '+o.contact,o.platform+' — '+o.service+'<br>'+o.profile_link,(o.target_reach||0).toLocaleString()+' reach',o.status];
- cells.forEach((v,i)=>{const td=document.createElement('td');if(i===2)td.textContent=v;else td.textContent=v;tr.appendChild(td)});
- const td=document.createElement('td'),sel=document.createElement('select');['new','quoted','paid','in_progress','completed','cancelled'].forEach(s=>{const op=document.createElement('option');op.value=s;op.textContent=s;op.selected=s===o.status;sel.appendChild(op)});
- sel.addEventListener('change',async()=>{const {error}=await db.from('campaign_orders').update({status:sel.value}).eq('id',o.id);adminStatus.textContent=error?error.message:'Order status updated.';});td.appendChild(sel);tr.appendChild(td);body.appendChild(tr);
- }adminStatus.textContent=data.length+' order(s) loaded.';
+    values.forEach(value => {
+      const td = document.createElement('td');
+      td.textContent = value;
+      tr.appendChild(td);
+    });
+
+    const td = document.createElement('td');
+    const select = document.createElement('select');
+
+    const statuses = [
+      'new',
+      'quoted',
+      'paid',
+      'in_progress',
+      'completed',
+      'cancelled'
+    ];
+
+    statuses.forEach(status => {
+      const option = document.createElement('option');
+      option.value = status;
+      option.textContent = status;
+      option.selected = status === order.status;
+      select.appendChild(option);
+    });
+
+    select.addEventListener('change', async () => {
+      select.disabled = true;
+
+      const { error } = await db
+        .from('campaign_orders')
+        .update({ status: select.value })
+        .eq('id', order.id);
+
+      adminStatus.textContent = error
+        ? 'Update failed: ' + error.message
+        : 'Order status updated successfully.';
+
+      select.disabled = false;
+    });
+
+    td.appendChild(select);
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+
+  adminStatus.textContent = data.length + ' order(s) loaded.';
 }
-document.getElementById('refreshOrders').addEventListener('click',loadOrders);
-document.getElementById('signOut').addEventListener('click',async()=>{await db.auth.signOut();document.getElementById('adminLogin').style.display='block';document.getElementById('adminPanel').style.display='none';adminStatus.textContent='Signed out.';});
-</script></body></html>
+
+// Refresh orders
+document.getElementById('refreshOrders')
+  .addEventListener('click', async () => {
+    await checkAdmin();
+  });
+
+// Sign out
+document.getElementById('signOut')
+  .addEventListener('click', async () => {
+    await db.auth.signOut();
+
+    document.getElementById('adminLogin').style.display = 'block';
+    document.getElementById('adminPanel').style.display = 'none';
+
+    adminStatus.textContent = 'You have signed out.';
+  });
+
+// Password recovery
+db.auth.onAuthStateChange((event, session) => {
+  if (event === 'PASSWORD_RECOVERY' && session) {
+    document.getElementById('adminLogin').style.display = 'none';
+    document.getElementById('adminPanel').style.display = 'none';
+    document.getElementById('passwordRecovery').style.display = 'block';
+
+    document.getElementById('recoveryStatus').textContent =
+      'Recovery verified. Enter your new password.';
+  }
+});
+
+document.getElementById('recoveryForm')
+  .addEventListener('submit', async e => {
+    e.preventDefault();
+
+    const password = val('newPassword');
+    const confirmation = val('confirmPassword');
+    const message = document.getElementById('recoveryStatus');
+
+    if (password.length < 8) {
+      message.textContent = 'Password must contain at least 8 characters.';
+      return;
+    }
+
+    if (password !== confirmation) {
+      message.textContent = 'Passwords do not match.';
+      return;
+    }
+
+    message.textContent = 'Saving new password...';
+
+    const { error } = await db.auth.updateUser({
+      password: password
+    });
+
+    if (error) {
+      message.textContent = error.message;
+      return;
+    }
+
+    await db.auth.signOut();
+
+    e.target.reset();
+    document.getElementById('passwordRecovery').style.display = 'none';
+    document.getElementById('adminLogin').style.display = 'block';
+
+    adminStatus.textContent = 'Password changed successfully. Please sign in again.';
+  });
+
+// Restore existing administrator session
+(async () => {
+  const { data } = await db.auth.getSession();
+
+  if (data.session) {
+    await checkAdmin();
+  }
+})();
+</script>
+</body></html>
