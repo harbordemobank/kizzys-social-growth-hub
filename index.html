@@ -70,7 +70,30 @@ footer{background:var(--navy);color:#dce5ff;text-align:center;padding:27px}
   <p id="recoveryStatus" class="muted" aria-live="polite"></p>
 </div>
 
-<div id="adminPanel"><button class="btn" id="refreshOrders" type="button">Refresh orders</button> <button class="btn" id="signOut" type="button">Sign out</button><p id="adminMessage" class="muted"></p><div style="overflow-x:auto"><table><thead><tr><th>Created</th><th>Customer</th><th>Campaign</th><th>Target</th><th>Status</th><th>Update</th></tr></thead><tbody id="ordersBody"></tbody></table></div></div>
+<div id="adminPanel">
+<button class="btn" id="refreshOrders" type="button">Refresh orders</button>
+<button class="btn" id="signOut" type="button">Sign out</button>
+<p id="adminMessage" class="muted"></p>
+<div style="overflow-x:auto">
+<table>
+<thead>
+<tr>
+<th>Created</th>
+<th>Customer</th>
+<th>Campaign</th>
+<th>Target</th>
+<th>Status</th>
+<th>Payment</th>
+<th>Budget</th>
+<th>Approval</th>
+<th>Campaign notes</th>
+<th>Update</th>
+</tr>
+</thead>
+<tbody id="ordersBody"></tbody>
+</table>
+</div>
+</div>
 <div id="adminStatus" class="status" style="display:block;margin-top:12px">Admin access requires your own Supabase project and an administrator account. See SETUP.md.</div></div></section>
 </main><footer><b>Kizzys Social Growth Hub</b><br>Thoughtful promotion. Real audiences. Better content.<br><small>© <span id="year"></span> Kizzys Social Growth Hub</small></footer>
 
@@ -179,6 +202,7 @@ document.getElementById('loginForm').addEventListener('submit', async e => {
 });
 
 // Load customer orders
+
 async function loadOrders() {
   adminStatus.textContent = 'Loading orders...';
 
@@ -196,24 +220,217 @@ async function loadOrders() {
   const body = document.getElementById('ordersBody');
   body.replaceChildren();
 
+  async function updateOrder(id, changes) {
+    const { error } = await db
+      .from('campaign_orders')
+      .update(changes)
+      .eq('id', id);
+
+    if (error) {
+      adminStatus.textContent = 'Update failed: ' + error.message;
+      return false;
+    }
+
+    adminStatus.textContent = 'Campaign order updated successfully.';
+    return true;
+  }
+
   for (const order of data) {
     const tr = document.createElement('tr');
 
-    const values = [
-      new Date(order.created_at).toLocaleString(),
-      order.customer_name + ' / ' + order.contact,
-      order.platform + ' — ' + order.service + ' — ' + order.profile_link,
-      Number(order.target_reach || 0).toLocaleString() + ' reach',
-      order.status
-    ];
-
-    values.forEach(value => {
+    function cell(value) {
       const td = document.createElement('td');
-      td.textContent = value;
+      td.textContent = value ?? '';
       tr.appendChild(td);
+      return td;
+    }
+
+    cell(new Date(order.created_at).toLocaleString());
+    cell(order.customer_name + ' / ' + order.contact);
+    cell(order.platform + ' — ' + order.service + ' — ' + order.profile_link);
+    cell(Number(order.target_reach || 0).toLocaleString() + ' reach');
+    cell(order.status);
+
+    // Payment confirmation
+    const paymentCell = document.createElement('td');
+    const paymentLabel = document.createElement('label');
+    const paymentCheckbox = document.createElement('input');
+
+    paymentCheckbox.type = 'checkbox';
+    paymentCheckbox.checked = order.payment_confirmed === true;
+    paymentCheckbox.style.width = 'auto';
+
+    paymentLabel.appendChild(paymentCheckbox);
+    paymentLabel.appendChild(
+      document.createTextNode(' Confirmed')
+    );
+
+    paymentCheckbox.addEventListener('change', async () => {
+      paymentCheckbox.disabled = true;
+
+      const ok = await updateOrder(order.id, {
+        payment_confirmed: paymentCheckbox.checked
+      });
+
+      if (!ok) paymentCheckbox.checked = !paymentCheckbox.checked;
+
+      paymentCheckbox.disabled = false;
     });
 
-    const td = document.createElement('td');
+    paymentCell.appendChild(paymentLabel);
+    tr.appendChild(paymentCell);
+
+    // Advertising budget
+    const budgetCell = document.createElement('td');
+    const budgetInput = document.createElement('input');
+
+    budgetInput.type = 'number';
+    budgetInput.min = '0';
+    budgetInput.step = '0.01';
+    budgetInput.placeholder = 'Budget';
+    budgetInput.value = order.advertising_budget ?? '';
+    budgetInput.style.minWidth = '100px';
+
+    const saveBudget = document.createElement('button');
+    saveBudget.type = 'button';
+    saveBudget.textContent = 'Save budget';
+    saveBudget.className = 'btn';
+
+    saveBudget.addEventListener('click', async () => {
+      const amount = Number(budgetInput.value);
+
+      if (budgetInput.value.trim() === '' ||
+          !Number.isFinite(amount) || amount < 0) {
+        adminStatus.textContent = 'Enter a valid budget.';
+        return;
+      }
+
+      saveBudget.disabled = true;
+
+      await updateOrder(order.id, {
+        advertising_budget: amount
+      });
+
+      saveBudget.disabled = false;
+    });
+
+    budgetCell.appendChild(budgetInput);
+    budgetCell.appendChild(saveBudget);
+    tr.appendChild(budgetCell);
+
+    // Campaign approval
+    const approvalCell = document.createElement('td');
+
+    const approvalText = document.createElement('p');
+    approvalText.textContent = order.campaign_approved
+      ? 'APPROVED'
+      : 'PENDING';
+
+    approvalCell.appendChild(approvalText);
+
+    const approveButton = document.createElement('button');
+    approveButton.type = 'button';
+    approveButton.textContent = 'Approve campaign';
+    approveButton.className = 'btn';
+
+    approveButton.disabled =
+      order.payment_confirmed !== true ||
+      order.campaign_approved === true;
+
+    approveButton.title = order.payment_confirmed
+      ? 'Approve this campaign'
+      : 'Confirm payment before approval';
+
+    approveButton.addEventListener('click', async () => {
+      if (order.payment_confirmed !== true) {
+        adminStatus.textContent =
+          'Confirm payment before approving this campaign.';
+        return;
+      }
+
+      if (!confirm('Approve this campaign?')) return;
+
+      approveButton.disabled = true;
+
+      const { data: userData, error: userError } =
+        await db.auth.getUser();
+
+      if (userError || !userData.user) {
+        adminStatus.textContent =
+          'Could not verify the administrator account.';
+        approveButton.disabled = false;
+        return;
+      }
+
+      const ok = await updateOrder(order.id, {
+        campaign_approved: true,
+        approved_at: new Date().toISOString(),
+        approved_by: userData.user.id
+      });
+
+      if (ok) await loadOrders();
+      else approveButton.disabled = false;
+    });
+
+    approvalCell.appendChild(approveButton);
+
+    const rejectButton = document.createElement('button');
+    rejectButton.type = 'button';
+    rejectButton.textContent = 'Reject';
+    rejectButton.style.marginTop = '6px';
+    rejectButton.className = 'btn';
+
+    rejectButton.addEventListener('click', async () => {
+      if (!confirm('Reject this campaign?')) return;
+
+      rejectButton.disabled = true;
+
+      const ok = await updateOrder(order.id, {
+        campaign_approved: false,
+        approved_at: null,
+        approved_by: null,
+        campaign_notes: 'Campaign rejected by administrator.'
+      });
+
+      if (ok) await loadOrders();
+      else rejectButton.disabled = false;
+    });
+
+    approvalCell.appendChild(
+      document.createElement('br')
+    );
+    approvalCell.appendChild(rejectButton);
+    tr.appendChild(approvalCell);
+
+    // Campaign notes
+    const notesCell = document.createElement('td');
+    const notesInput = document.createElement('textarea');
+
+    notesInput.value = order.campaign_notes || '';
+    notesInput.placeholder = 'Campaign notes';
+    notesInput.style.minWidth = '150px';
+
+    const saveNotes = document.createElement('button');
+    saveNotes.type = 'button';
+    saveNotes.textContent = 'Save notes';
+    saveNotes.className = 'btn';
+
+    saveNotes.addEventListener('click', async () => {
+      saveNotes.disabled = true;
+
+      await updateOrder(order.id, {
+        campaign_notes: notesInput.value
+      });
+
+      saveNotes.disabled = false;
+    });
+
+    notesCell.appendChild(notesInput);
+    notesCell.appendChild(saveNotes);
+    tr.appendChild(notesCell);
+
+    // Existing order status controls
+    const statusCell = document.createElement('td');
     const select = document.createElement('select');
 
     const statuses = [
@@ -235,21 +452,15 @@ async function loadOrders() {
 
     select.addEventListener('change', async () => {
       select.disabled = true;
-
-      const { error } = await db
-        .from('campaign_orders')
-        .update({ status: select.value })
-        .eq('id', order.id);
-
-      adminStatus.textContent = error
-        ? 'Update failed: ' + error.message
-        : 'Order status updated successfully.';
-
+      await updateOrder(order.id, {
+        status: select.value
+      });
       select.disabled = false;
     });
 
-    td.appendChild(select);
-    tr.appendChild(td);
+    statusCell.appendChild(select);
+    tr.appendChild(statusCell);
+
     body.appendChild(tr);
   }
 
